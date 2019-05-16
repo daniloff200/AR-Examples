@@ -12,6 +12,7 @@
     <script src="threex/threex-artoolkitcontext.js"></script>
     <script src="threex/threex-arbasecontrols.js"></script>
     <script src="threex/threex-armarkercontrols.js"></script>
+
 </head>
 
 <body style='margin : 0px; overflow: hidden; font-family: Monospace;'>
@@ -21,6 +22,48 @@
   Based on the AR.js library and examples created by Jerome Etienne: https://github.com/jeromeetienne/AR.js/
 -->
 
+<!-- ---------------- Custom Shader Code ------------------------ -->
+<script id="vertexShader" type="x-shader/x-vertex">
+uniform float time;
+varying vec2 textureUV;
+uniform sampler2D baseTexture;
+void main()
+{
+    textureUV = uv;
+	vec2 repeatUV = textureUV * vec2(4.0, 1.0);
+	float sideDisplacement = 0.0;
+	// side displacement only applied near edge of texture
+	if (repeatUV.y < 0.15)
+	{
+		float angle = atan(position.y, position.x);
+		float s1 = sin(8.3 * angle);
+		float s2 = sin(7.1 * angle);
+		sideDisplacement = 0.08 * s1 * s1 * abs(sin(0.65*time)) + 0.09 * s2 * s2 * abs(sin(0.74*time));
+	}
+	vec3 newPosition = position + normal * sideDisplacement;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4( newPosition, 1.0 );
+}
+</script>
+
+<script id="fragmentShader" type="x-shader/x-vertex">
+uniform float time;
+uniform sampler2D baseTexture;
+varying vec2 textureUV;
+void main()
+{
+	vec2 repeatUV = textureUV * vec2(4.0, 1.0);
+	// displacement creates scrolling effect on texture
+	vec2 displaceUV = repeatUV + vec2(0.0, time/20.0);
+	float alpha = 1.0;
+	// transparency only applied near edge of texture
+	if (repeatUV.y < 0.315)
+		alpha = 1.0/0.315 * repeatUV.y;
+	vec4 tintColor = texture2D( baseTexture, displaceUV ) * vec4( 1.0, 1.0, 1.0, alpha );
+	gl_FragColor = tintColor;
+}
+</script>
+<!-- ----------------------------------------------------------- -->
+
 <script>
 
     var scene, camera, renderer, clock, deltaTime, totalTime;
@@ -29,7 +72,7 @@
 
     var markerRoot1;
 
-    var mesh1;
+    var material1, mesh1;
 
     initialize();
     animate();
@@ -38,11 +81,11 @@
     {
         scene = new THREE.Scene();
 
-        let ambientLight = new THREE.AmbientLight( 0xcccccc, 0.5 );
-        scene.add( ambientLight );
-
         camera = new THREE.Camera();
-        scene.add(camera);
+        scene.add( camera );
+
+        let ambientLight = new THREE.AmbientLight( 0xcccccc, 1.00 );
+        scene.add( ambientLight );
 
         renderer = new THREE.WebGLRenderer({
             antialias : true,
@@ -51,7 +94,7 @@
         renderer.setClearColor(new THREE.Color('lightgrey'), 0)
         renderer.setSize( 640, 480 );
         renderer.domElement.style.position = 'absolute'
-        renderer.domElement.style.top = '0px'
+        renderer.domElement.style.top  = '0px'
         renderer.domElement.style.left = '0px'
         document.body.appendChild( renderer.domElement );
 
@@ -107,36 +150,54 @@
 
         // build markerControls
         markerRoot1 = new THREE.Group();
+        markerRoot1.name = 'marker1';
         scene.add(markerRoot1);
         let markerControls1 = new THREEx.ArMarkerControls(arToolkitContext, markerRoot1, {
-            type: 'pattern', patternUrl: "data/hiro.patt",
+            type : 'pattern',
+            patternUrl : "data/hiro.patt",
         })
 
-        let geometry1 = new THREE.PlaneBufferGeometry(1,1, 4,4);
         let loader = new THREE.TextureLoader();
-        let texture = loader.load( 'images/valor.jpg', render );
-        let material1 = new THREE.MeshBasicMaterial( { map: texture } );
+
+        // water
+
+        let geometry1 = new THREE.TorusGeometry(1,1, 64, 256); // radius, tube radius
+        let texture1 = loader.load( 'images/demo/valor.jpg' );
+        texture1.wrapS = THREE.RepeatWrapping;
+        texture1.wrapT = THREE.RepeatWrapping;
+        texture1.repeat.set(8,2);
+
+        // shader-based material
+        material1 = new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 1.0 },
+                baseTexture: { value: texture1 },
+            },
+            vertexShader: document.getElementById( 'vertexShader' ).textContent,
+            fragmentShader: document.getElementById( 'fragmentShader' ).textContent,
+            transparent: true,
+        });
 
         mesh1 = new THREE.Mesh( geometry1, material1 );
         mesh1.rotation.x = -Math.PI/2;
+        mesh1.scale.z = 0.10;
 
         markerRoot1.add( mesh1 );
-    }
 
+    }
 
     function update()
     {
+        material1.uniforms.time.value += deltaTime;
         // update artoolkit on every frame
         if ( arToolkitSource.ready !== false )
             arToolkitContext.update( arToolkitSource.domElement );
     }
 
-
     function render()
     {
         renderer.render( scene, camera );
     }
-
 
     function animate()
     {
@@ -146,6 +207,7 @@
         update();
         render();
     }
+
 
 </script>
 
